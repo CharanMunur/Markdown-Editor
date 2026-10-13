@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import TopBar from "./components/header/TopBar";
 import EditorPane from "./components/editor/EditorPane";
 import PreviewPane from "./components/preview/PreviewPane";
-import { Separator } from "./components/ui/separator";
+import { TooltipProvider } from "./components/ui/tooltip";
 import defaultMarkdown from "./assets/markdown.md?raw";
 
 const STORAGE_KEY = "markdown-editor:content";
@@ -10,6 +10,7 @@ const STORAGE_KEY = "markdown-editor:content";
 const App = () => {
   const MIN_EDITOR_WIDTH = 20;
   const MAX_EDITOR_WIDTH = 80;
+
   const [value, setValue] = useState(() => {
     if (typeof window === "undefined") return defaultMarkdown;
     try {
@@ -19,12 +20,16 @@ const App = () => {
       return defaultMarkdown;
     }
   });
+
   const [syncEnabled, setSyncEnabled] = useState(false);
   const [editorWidth, setEditorWidth] = useState(50);
   const [isResizing, setIsResizing] = useState(false);
+  const [viewMode, setViewMode] = useState("both"); // 'both' | 'editor' | 'preview'
+
   const splitContainerRef = useRef(null);
-  const previewRef = useRef(null); // article content
-  const previewViewportRef = useRef(null); // scroll container
+  const previewRef = useRef(null);
+  const previewViewportRef = useRef(null);
+  const monacoEditorRef = useRef(null);
 
   const clampEditorWidth = useCallback((nextWidth) => {
     return Math.max(MIN_EDITOR_WIDTH, Math.min(MAX_EDITOR_WIDTH, nextWidth));
@@ -100,50 +105,79 @@ const App = () => {
     });
   };
 
+  const handleEditorReady = (editor) => {
+    monacoEditorRef.current = editor;
+    editor.onDidChangeCursorPosition((e) => {
+      setCursorPosition({
+        line: e.position.lineNumber,
+        column: e.position.column,
+      });
+    });
+  };
+
   return (
-    <div className="flex h-screen flex-col overflow-hidden">
-      <TopBar
-        value={value}
-        onReset={() => setValue(defaultMarkdown)}
-        previewRef={previewRef}
-        syncEnabled={syncEnabled}
-        onToggleSync={setSyncEnabled}
-      />
-      <Separator />
-      <div
-        ref={splitContainerRef}
-        className={`flex flex-1 min-h-0 ${isResizing ? "select-none" : ""}`}
-      >
+    <TooltipProvider delayDuration={150}>
+      <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
+        <TopBar
+          value={value}
+          onReset={() => setValue(defaultMarkdown)}
+          previewRef={previewRef}
+          syncEnabled={syncEnabled}
+          onToggleSync={setSyncEnabled}
+          onImportFile={setValue}
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
+        />
+
         <div
-          className="h-full min-w-0 shrink-0"
-          style={{ width: `${editorWidth}%` }}
+          ref={splitContainerRef}
+          className={`flex flex-1 min-h-0 relative ${isResizing ? "select-none" : ""}`}
         >
-          <EditorPane
-            value={value}
-            onChange={setValue}
-            syncEnabled={syncEnabled}
-            onSyncScroll={handleEditorSync}
-          />
-        </div>
-        <div
-          role="separator"
-          aria-label="Resize panes"
-          aria-orientation="vertical"
-          onPointerDown={handleResizeStart}
-          className="group relative w-2 shrink-0 cursor-col-resize touch-none bg-background"
-        >
-          <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border" />
-          <div className="absolute inset-y-0 left-1/2 w-1 -translate-x-1/2 bg-primary/30 opacity-0 transition-opacity group-hover:opacity-100 group-active:opacity-100" />
-        </div>
-        <div className="h-full min-w-0 flex-1">
-          <PreviewPane
-            value={value}
-            previewRef={previewRef}
-            viewportRef={previewViewportRef}
-          />
+          {/* Editor Pane */}
+          {(viewMode === "both" || viewMode === "editor") && (
+            <div
+              className="h-full min-w-0 shrink-0"
+              style={{
+                width: viewMode === "both" ? `${editorWidth}%` : "100%",
+              }}
+            >
+              <EditorPane
+                value={value}
+                onChange={setValue}
+                syncEnabled={syncEnabled}
+                onSyncScroll={handleEditorSync}
+                onEditorReady={handleEditorReady}
+              />
+            </div>
+          )}
+
+          {/* Resizable Split Divider */}
+          {viewMode === "both" && (
+            <div
+              role="separator"
+              aria-label="Resize panes"
+              aria-orientation="vertical"
+              onPointerDown={handleResizeStart}
+              className="group relative w-2 shrink-0 cursor-col-resize touch-none bg-background select-none"
+            >
+              <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border group-hover:bg-primary/40 group-active:bg-primary transition-colors" />
+              <div className="absolute inset-y-0 left-1/2 w-1 -translate-x-1/2 bg-primary/20 opacity-0 transition-opacity group-hover:opacity-100 group-active:opacity-100" />
+            </div>
+          )}
+
+          {/* Preview Pane */}
+          {(viewMode === "both" || viewMode === "preview") && (
+            <div className="h-full min-w-0 flex-1">
+              <PreviewPane
+                value={value}
+                previewRef={previewRef}
+                viewportRef={previewViewportRef}
+              />
+            </div>
+          )}
         </div>
       </div>
-    </div>
+    </TooltipProvider>
   );
 };
 

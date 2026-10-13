@@ -185,6 +185,36 @@ body {
   color: inherit;
   font-family: inherit;
   font-size: 0.98rem;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+/* Ensure images adapt responsively to preview pane width */
+.markdown-body img {
+  display: inline-block !important;
+  vertical-align: middle;
+  max-width: 100% !important;
+  height: auto !important;
+  margin: 2px 2px;
+}
+
+/* Support HTML align attributes properly */
+.markdown-body [align="center"] {
+  text-align: center !important;
+}
+
+.markdown-body [align="right"] {
+  text-align: right !important;
+}
+
+.markdown-body [align="left"] {
+  text-align: left !important;
+}
+
+.markdown-body picture {
+  display: inline-block;
+  max-width: 100%;
+  text-align: center;
 }
 
 .light .markdown-body {
@@ -243,10 +273,10 @@ body {
 }
 
 .markdown-body pre {
-  background: color-mix(in oklab, var(--card) 88%, var(--muted));
-  border: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
-  border-radius: 0.5rem;
-  padding: 0.85rem 1rem;
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
 }
 
 .markdown-body pre code.hljs {
@@ -254,14 +284,18 @@ body {
 }
 
 .markdown-body code {
-  background: color-mix(in oklab, var(--muted) 65%, transparent);
+  background: color-mix(in oklab, var(--muted) 80%, transparent);
+  border: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
   border-radius: 0.35rem;
-  padding: 0.1rem 0.35rem;
+  padding: 0.15rem 0.4rem;
+  font-size: 0.875em;
+  font-family: var(--font-mono);
 }
 
 .markdown-body pre code {
-  background: transparent;
-  padding: 0;
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
 }
 
 .markdown-body table {
