@@ -41,6 +41,177 @@ const PAGE_DIMENSIONS = {
   },
 };
 
+const getPdfPageSize = (format, orientation) => {
+  const isPortrait = orientation === "portrait";
+  return format === "a4"
+    ? { width: isPortrait ? 210 : 297, height: isPortrait ? 297 : 210 }
+    : { width: isPortrait ? 215.9 : 279.4, height: isPortrait ? 279.4 : 215.9 };
+};
+
+async function renderPdfPages({ previewElement, format, orientation, theme, margins }) {
+  const dims = PAGE_DIMENSIONS[format][orientation];
+  const pageSize = getPdfPageSize(format, orientation);
+  const wrapper = document.createElement("div");
+  wrapper.id = `pdf-export-capture-${Date.now()}`;
+  wrapper.style.position = "fixed";
+  wrapper.style.left = "0";
+  wrapper.style.top = "0";
+  wrapper.style.zIndex = "-9999";
+  wrapper.style.opacity = "0";
+  wrapper.style.pointerEvents = "none";
+  wrapper.style.width = `${dims.width}px`;
+  wrapper.style.backgroundColor = theme === "dark" ? "#0c0c0c" : "#ffffff";
+  wrapper.style.color = theme === "dark" ? "#ededed" : "#0d0d0d";
+  wrapper.style.fontFamily = "'Google Sans', sans-serif";
+  wrapper.style.boxSizing = "border-box";
+  wrapper.style.padding = `${Math.round(margins * 3.78)}px`;
+  wrapper.className = `${theme} markdown-preview pdf-preview-sheet`;
+  wrapper.setAttribute("data-pdf-theme", theme);
+
+  const clone = previewElement.cloneNode(true);
+  clone.style.width = "100%";
+  clone.style.maxWidth = "100%";
+  clone.style.height = "auto";
+  clone.style.minHeight = "0";
+  clone.style.overflow = "visible";
+  clone.style.margin = "0";
+  clone.style.padding = "0";
+  clone.style.fontFamily = "'Google Sans', sans-serif";
+  clone.style.backgroundColor = "transparent";
+  clone.style.color = "inherit";
+  clone.querySelectorAll(".markdown-code-copy").forEach((button) => button.remove());
+  wrapper.appendChild(clone);
+  document.body.appendChild(wrapper);
+
+  try {
+    let layout = { wrapperHeight: 0, breakUnits: [] };
+    const canvas = await html2canvas(wrapper, {
+      scale: 2,
+      useCORS: true,
+      allowTaint: true,
+      backgroundColor: theme === "dark" ? "#0c0c0c" : "#ffffff",
+      logging: false,
+      windowWidth: dims.width,
+      onclone: (clonedDocument) => {
+        const clonedWrapper = clonedDocument.getElementById(wrapper.id);
+        if (!clonedWrapper) return;
+        clonedWrapper.style.opacity = "1";
+        const wrapperBounds = clonedWrapper.getBoundingClientRect();
+        const toRelativeBounds = (element) => {
+          const bounds = element.getBoundingClientRect();
+          return {
+            top: bounds.top - wrapperBounds.top,
+            bottom: bounds.bottom - wrapperBounds.top,
+          };
+        };
+        const breakUnits = [];
+        const markdownBody = clonedWrapper.querySelector(".markdown-body") || clonedWrapper;
+
+        markdownBody.querySelectorAll("h1, h2, h3, h4, h5, h6").forEach((heading) => {
+          const bounds = toRelativeBounds(heading);
+          breakUnits.push({ ...bounds, moveTo: bounds.top });
+        });
+
+        markdownBody.querySelectorAll(".markdown-table-card, blockquote").forEach((element) => {
+          const bounds = toRelativeBounds(element);
+          breakUnits.push({ ...bounds, moveTo: bounds.top });
+        });
+
+        markdownBody.querySelectorAll(".markdown-code-card").forEach((card) => {
+          const cardBounds = toRelativeBounds(card);
+          let groupTop = cardBounds.top;
+          let previous = card.previousElementSibling;
+          while (previous && /^(H[1-6]|P)$/.test(previous.tagName)) {
+            const previousBounds = toRelativeBounds(previous);
+            if (groupTop - previousBounds.bottom > 96) break;
+            groupTop = previousBounds.top;
+            previous = previous.previousElementSibling;
+          }
+
+          const header = card.querySelector(".markdown-code-header");
+          const pre = card.querySelector("pre");
+          const code = pre?.querySelector("code");
+          const headerBottom = header ? toRelativeBounds(header).bottom : cardBounds.top;
+          const headerUnit = { top: groupTop, bottom: headerBottom, moveTo: groupTop };
+          breakUnits.push(headerUnit);
+
+          if (code) {
+            const lines = Array.from(code.querySelectorAll(":scope > .line"));
+            lines.forEach((line) => {
+              const bounds = toRelativeBounds(line);
+              breakUnits.push({ ...bounds, moveTo: bounds.top });
+            });
+          }
+
+          breakUnits.push({ ...cardBounds, top: groupTop, moveTo: groupTop, kind: "code-card" });
+        });
+
+        layout = { wrapperHeight: wrapperBounds.height, breakUnits };
+      },
+    });
+
+    const canvasScaleY = canvas.height / Math.max(layout.wrapperHeight, 1);
+    const pageHeightPx = Math.ceil((canvas.width * pageSize.height) / pageSize.width);
+    const marginPx = Math.round(margins * 3.78) * canvasScaleY;
+    const backgroundColor = theme === "dark" ? "#0c0c0c" : "#ffffff";
+    const maxContentHeight = pageHeightPx - marginPx * 2;
+    const breakUnits = layout.breakUnits.map((unit) => ({
+      top: unit.top * canvasScaleY,
+      bottom: unit.bottom * canvasScaleY,
+      moveTo: unit.moveTo * canvasScaleY,
+      kind: unit.kind,
+    }));
+    const pages = [];
+    let sourceY = 0;
+    let pageIndex = 0;
+
+    while (sourceY < canvas.height) {
+      const topInset = pageIndex === 0 ? 0 : marginPx;
+      const availableHeight = Math.max(1, Math.floor(pageHeightPx - topInset - marginPx));
+      let pageEnd = Math.min(canvas.height, sourceY + availableHeight);
+
+      if (pageEnd < canvas.height) {
+        const crossingUnits = breakUnits.filter((unit) => {
+          const height = unit.bottom - unit.top;
+          if (unit.top >= pageEnd || unit.bottom <= pageEnd || height <= 0) return false;
+          if (unit.kind === "code-card") return height <= maxContentHeight;
+          return height <= availableHeight;
+        });
+        if (crossingUnits.length) {
+          pageEnd = Math.floor(Math.min(...crossingUnits.map((unit) => unit.moveTo)));
+        }
+      }
+
+      if (pageEnd <= sourceY) pageEnd = Math.min(canvas.height, sourceY + availableHeight);
+      const sliceHeight = Math.max(1, Math.ceil(pageEnd - sourceY));
+      const pageCanvas = document.createElement("canvas");
+      pageCanvas.width = canvas.width;
+      pageCanvas.height = pageHeightPx;
+      const context = pageCanvas.getContext("2d");
+      context.fillStyle = backgroundColor;
+      context.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+      context.drawImage(
+        canvas,
+        0,
+        sourceY,
+        canvas.width,
+        sliceHeight,
+        0,
+        Math.round(topInset),
+        canvas.width,
+        sliceHeight
+      );
+      pages.push(pageCanvas.toDataURL("image/png"));
+      sourceY = pageEnd;
+      pageIndex += 1;
+    }
+
+    return { pages, pageSize };
+  } finally {
+    wrapper.remove();
+  }
+}
+
 export function PdfExportDialog({
   open,
   onOpenChange,
@@ -55,6 +226,8 @@ export function PdfExportDialog({
   const [zoom, setZoom] = useState(0.95); // Default to 95% per user request
   const [isExporting, setIsExporting] = useState(false);
   const [previewHtml, setPreviewHtml] = useState("");
+  const [previewPages, setPreviewPages] = useState([]);
+  const [isPreviewRendering, setIsPreviewRendering] = useState(false);
   const previewContainerRef = useRef(null);
 
   const currentDims = PAGE_DIMENSIONS[format][orientation];
@@ -72,6 +245,37 @@ export function PdfExportDialog({
     }
   }, [open, defaultDark, previewRef]);
 
+  useEffect(() => {
+    if (!open || !previewRef?.current) {
+      setPreviewPages([]);
+      return undefined;
+    }
+
+    let isActive = true;
+    setIsPreviewRendering(true);
+    setPreviewPages([]);
+    renderPdfPages({
+      previewElement: previewRef.current,
+      format,
+      orientation,
+      theme,
+      margins: marginNum,
+    })
+      .then(({ pages }) => {
+        if (isActive) setPreviewPages(pages);
+      })
+      .catch((error) => {
+        console.error("PDF preview rendering failed:", error);
+      })
+      .finally(() => {
+        if (isActive) setIsPreviewRendering(false);
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [open, previewRef, format, orientation, theme, marginNum, previewHtml]);
+
   const handleClose = () => {
     document.body.style.pointerEvents = "";
     onOpenChange(false);
@@ -86,161 +290,23 @@ export function PdfExportDialog({
 
   const handleExport = async (e) => {
     e?.preventDefault();
-    if (isExporting || !previewRef?.current) return;
+    if (isExporting || isPreviewRendering || previewPages.length === 0) return;
 
-    let wrapper;
     try {
       setIsExporting(true);
       const cleanBaseName = fileName.trim().replace(/\.pdf$/i, "") || "document";
       const cleanFileName = `${cleanBaseName}.pdf`;
-
-      // 1. Offscreen container for high-fidelity export
-      // Keep the live DOM hidden; html2canvas makes it visible in its own clone.
-      wrapper = document.createElement("div");
-      wrapper.id = "pdf-export-capture";
-      wrapper.style.position = "fixed";
-      wrapper.style.left = "0";
-      wrapper.style.top = "0";
-      wrapper.style.zIndex = "-9999";
-      wrapper.style.opacity = "0";
-      wrapper.style.pointerEvents = "none";
-      const baseWidthPx = currentDims.width;
-      wrapper.style.width = `${baseWidthPx}px`;
-      wrapper.style.backgroundColor = theme === "dark" ? "#0c0c0c" : "#ffffff";
-      wrapper.style.color = theme === "dark" ? "#ededed" : "#0d0d0d";
-      wrapper.style.fontFamily = "'Google Sans', sans-serif";
-      wrapper.style.boxSizing = "border-box";
-      wrapper.style.padding = `${Math.round(marginNum * 3.78)}px`;
-
-      wrapper.className = `${theme} markdown-preview pdf-preview-sheet`;
-      wrapper.setAttribute("data-pdf-theme", theme);
-
-      // 2. Clone preview node
-      const clone = previewRef.current.cloneNode(true);
-      clone.style.width = "100%";
-      clone.style.maxWidth = "100%";
-      clone.style.margin = "0";
-      clone.style.padding = "0";
-      clone.style.fontFamily = "'Google Sans', sans-serif";
-      clone.style.backgroundColor = "transparent";
-      clone.style.color = "inherit";
-
-      // Remove copy buttons
-      clone.querySelectorAll(".markdown-code-copy").forEach((el) => el.remove());
-
-      wrapper.appendChild(clone);
-      document.body.appendChild(wrapper);
-
-      // 3. Render high-res canvas (without oklab issues)
-      const canvas = await html2canvas(wrapper, {
-        scale: 2, // 2x retina crispness
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: theme === "dark" ? "#0c0c0c" : "#ffffff",
-        logging: false,
-        windowWidth: baseWidthPx,
-        onclone: (clonedDocument) => {
-          const clonedWrapper = clonedDocument.getElementById(wrapper.id);
-          if (clonedWrapper) clonedWrapper.style.opacity = "1";
-        },
-      });
-
-      // 4. Paginate the captured sheet without cutting code blocks across pages.
-      const isPortrait = orientation === "portrait";
-      const pageWidthMm = format === "a4" ? (isPortrait ? 210 : 297) : (isPortrait ? 215.9 : 279.4);
-      const pageHeightMm = format === "a4" ? (isPortrait ? 297 : 210) : (isPortrait ? 279.4 : 215.9);
-
+      const pageSize = getPdfPageSize(format, orientation);
       const doc = new jsPDF({
         orientation,
         unit: "mm",
         format,
       });
-
-      const wrapperBounds = wrapper.getBoundingClientRect();
-      const canvasScaleY = canvas.height / wrapperBounds.height;
-      const pageHeightPx = (canvas.width * pageHeightMm) / pageWidthMm;
-      const pageMarginPx = Math.round(marginNum * 3.78) * canvasScaleY;
-      const millimetersPerPixel = pageWidthMm / canvas.width;
-      const backgroundColor = theme === "dark" ? [12, 12, 12] : [255, 255, 255];
-      const blocksToKeepTogether = Array.from(
-        wrapper.querySelectorAll(
-          ".markdown-code-card, .markdown-table-card, blockquote, h1, h2, h3, h4, h5, h6"
-        )
-      ).map((element) => {
-        const bounds = element.getBoundingClientRect();
-        let top = bounds.top;
-        const previousElement = element.previousElementSibling;
-        if (
-          element.classList.contains("markdown-code-card") &&
-          previousElement &&
-          /^H[1-6]$/.test(previousElement.tagName)
-        ) {
-          const previousBounds = previousElement.getBoundingClientRect();
-          if (bounds.top - previousBounds.bottom <= 96) top = previousBounds.top;
-        }
-        return {
-          top: (top - wrapperBounds.top) * canvasScaleY,
-          bottom: (bounds.bottom - wrapperBounds.top) * canvasScaleY,
-        };
+      previewPages.forEach((page, index) => {
+        if (index > 0) doc.addPage();
+        doc.addImage(page, "PNG", 0, 0, pageSize.width, pageSize.height, undefined, "FAST");
       });
 
-      let sourceY = 0;
-      let pageIndex = 0;
-      while (sourceY < canvas.height) {
-        const topInsetPx = pageIndex === 0 ? 0 : pageMarginPx;
-        const availableHeightPx = pageHeightPx - topInsetPx - pageMarginPx;
-        let pageEnd = Math.min(canvas.height, sourceY + availableHeightPx);
-
-        if (pageEnd < canvas.height) {
-          const breakBefore = blocksToKeepTogether
-            .filter((block) =>
-              block.top < pageEnd &&
-              block.bottom > pageEnd &&
-              block.bottom - block.top <= availableHeightPx &&
-              block.top - sourceY >= availableHeightPx * 0.2
-            )
-            .reduce((earliest, block) => Math.min(earliest, block.top), pageEnd);
-
-          if (breakBefore < pageEnd) pageEnd = Math.floor(breakBefore);
-        }
-
-        // If a block is taller than a printable page, split it rather than loop forever.
-        if (pageEnd <= sourceY) pageEnd = Math.min(canvas.height, sourceY + availableHeightPx);
-        const sliceHeight = Math.max(1, Math.ceil(pageEnd - sourceY));
-        const pageCanvas = document.createElement("canvas");
-        pageCanvas.width = canvas.width;
-        pageCanvas.height = sliceHeight;
-        pageCanvas.getContext("2d").drawImage(
-          canvas,
-          0,
-          sourceY,
-          canvas.width,
-          sliceHeight,
-          0,
-          0,
-          canvas.width,
-          sliceHeight
-        );
-
-        doc.setFillColor(...backgroundColor);
-        doc.rect(0, 0, pageWidthMm, pageHeightMm, "F");
-        doc.addImage(
-          pageCanvas.toDataURL("image/png"),
-          "PNG",
-          0,
-          topInsetPx * millimetersPerPixel,
-          pageWidthMm,
-          sliceHeight * millimetersPerPixel,
-          undefined,
-          "FAST"
-        );
-
-        sourceY = pageEnd;
-        pageIndex += 1;
-        if (sourceY < canvas.height) doc.addPage();
-      }
-
-      // 5. Universal direct file download via Blob URL
       const pdfBlob = doc.output("blob");
       const blobUrl = URL.createObjectURL(pdfBlob);
       const link = document.createElement("a");
@@ -255,7 +321,6 @@ export function PdfExportDialog({
     } catch (err) {
       console.error("PDF generation failed:", err);
     } finally {
-      wrapper?.remove();
       setIsExporting(false);
       document.body.style.pointerEvents = "";
     }
@@ -287,7 +352,7 @@ export function PdfExportDialog({
                 Export as PDF
               </DialogTitle>
               <p className="text-[11px] text-muted-foreground">
-                Review the page, then download your document.
+                Review the paginated document before downloading.
               </p>
             </div>
           </div>
@@ -322,17 +387,21 @@ export function PdfExportDialog({
                 <span className="text-[11px] font-mono text-muted-foreground">
                   ({currentDims.label})
                 </span>
-                <Badge variant="outline" className="font-mono text-[10px] font-normal py-0 px-1.5 h-5">
+                <Badge variant="outline" className="rounded-md font-mono text-[10px] font-normal py-0 px-1.5 h-5">
                   {marginNum}mm margin
                 </Badge>
                 <Badge
                   variant="secondary"
                   className={cn(
                     "font-mono text-[10px] py-0 px-1.5 h-5 capitalize",
+                    "rounded-md",
                     theme === "dark" ? "bg-zinc-800 text-zinc-200" : "bg-zinc-100 text-zinc-800"
                   )}
                 >
                   {theme} theme
+                </Badge>
+                <Badge variant="outline" className="h-5 rounded-md px-1.5 font-mono text-[10px] font-normal">
+                  {isPreviewRendering ? "Preparing pages…" : `${previewPages.length} ${previewPages.length === 1 ? "page" : "pages"}`}
                 </Badge>
               </div>
 
@@ -401,46 +470,37 @@ export function PdfExportDialog({
             </div>
 
             {/* Scrollable Stage Area */}
-            <div className="flex-1 overflow-auto p-6 sm:p-8 flex justify-center items-start">
-              {/* Scaled paper wrapper */}
-              <div
-                style={{
-                  width: `${currentDims.width * zoom}px`,
-                  minHeight: `${currentDims.height * zoom}px`,
-                }}
-                className="relative transition-all duration-150 shrink-0 mb-8"
-              >
-                {/* Physical paper sheet with explicit data-pdf-theme and inline colors */}
-                <div
-                  data-pdf-theme={theme}
-                  style={{
-                    width: `${currentDims.width}px`,
-                    minHeight: `${currentDims.height}px`,
-                    transform: `scale(${zoom})`,
-                    transformOrigin: "top left",
-                    padding: `${Math.round(marginNum * 3.78)}px`,
-                    boxSizing: "border-box",
-                    fontFamily: "'Google Sans', sans-serif",
-                    backgroundColor: theme === "dark" ? "#0c0c0c" : "#ffffff",
-                    color: theme === "dark" ? "#ededed" : "#0d0d0d",
-                  }}
-                  className={cn(
-                    "markdown-preview pdf-preview-sheet shadow-2xl rounded-sm border border-border/80 absolute top-0 left-0 transition-colors duration-150",
-                    theme === "dark"
-                      ? "dark bg-[#0c0c0c] text-[#ededed]"
-                      : "light bg-white text-[#0d0d0d]"
-                  )}
-                >
-                  <article
-                    className="markdown-body text-sm leading-relaxed"
-                    style={{
-                      fontFamily: "'Google Sans', sans-serif",
-                      backgroundColor: "transparent",
-                      color: "inherit",
-                    }}
-                    dangerouslySetInnerHTML={{ __html: previewHtml }}
-                  />
-                </div>
+            <div className="flex-1 overflow-auto p-6 sm:p-8">
+              <div className="flex min-h-full flex-col items-center gap-6 pb-4">
+                {isPreviewRendering ? (
+                  <div className="flex min-h-48 items-center gap-2 text-xs text-muted-foreground">
+                    <Loader2 className="size-4 animate-spin" />
+                    Preparing page preview…
+                  </div>
+                ) : (
+                  previewPages.map((page, index) => (
+                    <div
+                      key={`${format}-${orientation}-${theme}-${margins}-${index}`}
+                      className="relative shrink-0 transition-[width,height] duration-150"
+                      style={{
+                        width: `${currentDims.width * zoom}px`,
+                        height: `${currentDims.height * zoom}px`,
+                      }}
+                    >
+                      <img
+                        src={page}
+                        alt={`PDF page ${index + 1}`}
+                        className="absolute left-0 top-0 border border-border/80 shadow-xl"
+                        style={{
+                          width: `${currentDims.width}px`,
+                          height: `${currentDims.height}px`,
+                          transform: `scale(${zoom})`,
+                          transformOrigin: "top left",
+                        }}
+                      />
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           </div>
@@ -459,25 +519,15 @@ export function PdfExportDialog({
                     value={fileName}
                     onChange={(e) => setFileName(e.target.value)}
                     placeholder="document"
-                    className="pr-12 text-sm font-medium h-9 rounded-md border-border bg-background focus-visible:ring-2 focus-visible:ring-ring/20"
+                    className="pr-12 text-sm font-medium h-9 rounded-lg border-border bg-background focus-visible:ring-2 focus-visible:ring-ring/20"
                   />
                   <Badge
                     variant="outline"
-                    className="absolute right-2 font-mono text-[10px] font-semibold text-muted-foreground bg-muted/60 select-none py-0 px-1.5 h-5 pointer-events-none"
+                    className="absolute right-2 rounded-md font-mono text-[10px] font-semibold text-muted-foreground bg-muted/60 select-none py-0 px-1.5 h-5 pointer-events-none"
                   >
                     .pdf
                   </Badge>
                 </div>
-              </div>
-
-              <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/30 px-3 py-2.5">
-                <div className="min-w-0">
-                  <p className="text-[11px] text-muted-foreground">PDF file</p>
-                  <p className="truncate text-xs font-medium text-foreground">
-                    {(fileName.trim().replace(/\.pdf$/i, "") || "document")}.pdf
-                  </p>
-                </div>
-                <span className="shrink-0 text-[11px] text-muted-foreground">Browser download</span>
               </div>
 
               <Separator className="!my-1" />
@@ -489,23 +539,23 @@ export function PdfExportDialog({
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs font-medium text-muted-foreground">Paper size</Label>
-                  <ToggleGroup type="single" value={format} onValueChange={(val) => val && setFormat(val)} className="grid w-full grid-cols-2 gap-1 rounded-md border border-border bg-muted/50 p-1">
-                    <ToggleGroupItem value="a4" className="h-8 rounded-sm text-xs cursor-pointer data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-xs">A4</ToggleGroupItem>
-                    <ToggleGroupItem value="letter" className="h-8 rounded-sm text-xs cursor-pointer data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-xs">US Letter</ToggleGroupItem>
+                  <ToggleGroup type="single" value={format} onValueChange={(val) => val && setFormat(val)} className="grid w-full grid-cols-2 gap-1 rounded-md bg-muted/70 p-1">
+                    <ToggleGroupItem value="a4" className="h-8 rounded-md text-xs cursor-pointer transition-colors data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm">A4</ToggleGroupItem>
+                    <ToggleGroupItem value="letter" className="h-8 rounded-md text-xs cursor-pointer transition-colors data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm">US Letter</ToggleGroupItem>
                   </ToggleGroup>
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs font-medium text-muted-foreground">Orientation</Label>
-                  <ToggleGroup type="single" value={orientation} onValueChange={(val) => val && setOrientation(val)} className="grid w-full grid-cols-2 gap-1 rounded-md border border-border bg-muted/50 p-1">
-                    <ToggleGroupItem value="portrait" className="h-8 rounded-sm text-xs cursor-pointer data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-xs">Portrait</ToggleGroupItem>
-                    <ToggleGroupItem value="landscape" className="h-8 rounded-sm text-xs cursor-pointer data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-xs">Landscape</ToggleGroupItem>
+                  <ToggleGroup type="single" value={orientation} onValueChange={(val) => val && setOrientation(val)} className="grid w-full grid-cols-2 gap-1 rounded-md bg-muted/70 p-1">
+                    <ToggleGroupItem value="portrait" className="h-8 rounded-md text-xs cursor-pointer transition-colors data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm">Portrait</ToggleGroupItem>
+                    <ToggleGroupItem value="landscape" className="h-8 rounded-md text-xs cursor-pointer transition-colors data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm">Landscape</ToggleGroupItem>
                   </ToggleGroup>
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs font-medium text-muted-foreground">Margins</Label>
-                  <ToggleGroup type="single" value={margins} onValueChange={(val) => val && setMargins(val)} className="grid w-full grid-cols-3 gap-1 rounded-md border border-border bg-muted/50 p-1">
+                  <ToggleGroup type="single" value={margins} onValueChange={(val) => val && setMargins(val)} className="grid w-full grid-cols-3 gap-1 rounded-md bg-muted/70 p-1">
                     {["10", "15", "20"].map((value) => (
-                      <ToggleGroupItem key={value} value={value} className="h-8 rounded-sm text-xs cursor-pointer data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-xs">
+                      <ToggleGroupItem key={value} value={value} className="h-8 rounded-md text-xs cursor-pointer transition-colors data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm">
                         {value}mm
                       </ToggleGroupItem>
                     ))}
@@ -522,11 +572,11 @@ export function PdfExportDialog({
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs font-medium text-muted-foreground">Document theme</Label>
-                  <ToggleGroup type="single" value={theme} onValueChange={(val) => val && setTheme(val)} className="grid w-full grid-cols-2 gap-1 rounded-md border border-border bg-muted/50 p-1">
-                    <ToggleGroupItem value="light" className="text-xs h-8 flex items-center justify-center gap-1.5 rounded-sm cursor-pointer data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-xs">
+                  <ToggleGroup type="single" value={theme} onValueChange={(val) => val && setTheme(val)} className="grid w-full grid-cols-2 gap-1 rounded-md bg-muted/70 p-1">
+                    <ToggleGroupItem value="light" className="text-xs h-8 flex items-center justify-center gap-1.5 rounded-md cursor-pointer transition-colors data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm">
                       <Sun className="size-3.5" /><span>Light</span>
                     </ToggleGroupItem>
-                    <ToggleGroupItem value="dark" className="text-xs h-8 flex items-center justify-center gap-1.5 rounded-sm cursor-pointer data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-xs">
+                    <ToggleGroupItem value="dark" className="text-xs h-8 flex items-center justify-center gap-1.5 rounded-md cursor-pointer transition-colors data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm">
                       <Moon className="size-3.5" /><span>Dark</span>
                     </ToggleGroupItem>
                   </ToggleGroup>
@@ -550,13 +600,13 @@ export function PdfExportDialog({
                 variant="default"
                 size="sm"
                 onClick={handleExport}
-                disabled={isExporting}
+                disabled={isExporting || isPreviewRendering || previewPages.length === 0}
                 className="h-8.5 px-4 text-xs rounded-lg cursor-pointer inline-flex items-center gap-1.5 font-medium"
               >
-                {isExporting ? (
+                {isExporting || isPreviewRendering ? (
                   <>
                     <Loader2 className="size-3.5 animate-spin" />
-                    <span>Generating…</span>
+                    <span>{isExporting ? "Generating…" : "Preparing…"}</span>
                   </>
                 ) : (
                   <>
