@@ -1,26 +1,74 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { MarkdownHooks } from "react-markdown";
 import rehypeShiki from "@shikijs/rehype";
 import rehypeRaw from "rehype-raw";
 import remarkGfm from "remark-gfm";
 import { ScrollArea } from "../ui/scroll-area";
 import { CodeBlock } from "./CodeBlock";
+import { Spinner } from "../ui/spinner";
 
-const getFenceLanguages = (markdown) =>
-  Array.from(markdown.matchAll(/^ {0,3}(`{3,}|~{3,})\s*([A-Za-z][\w+#.-]*)?/gm), (match) => match[2] || "Code");
+const PreviewLoading = () => (
+  <div className="flex min-h-[320px] w-full items-center justify-center gap-2.5 text-muted-foreground select-none">
+    <Spinner className="size-4 text-muted-foreground" />
+    <span className="text-xs font-medium tracking-tight">Rendering preview…</span>
+  </div>
+);
 
-const preserveCodeLanguages = (languages) => () => (tree) => {
-  let languageIndex = 0;
-  const visit = (node) => {
-    const rawClasses = node.properties?.className ?? node.properties?.class;
-    const classes = Array.isArray(rawClasses) ? rawClasses : String(rawClasses || "").split(/\s+/);
-    if (node.type === "element" && node.tagName === "pre" && classes.includes("shiki")) {
-      node.properties["data-language"] = languages[languageIndex++] || "Code";
-    }
-    for (const child of node.children || []) visit(child);
-  };
-  visit(tree);
-};
+// Curated list of popular programming languages for instant loading and snappy reloads
+const POPULAR_LANGUAGES = [
+  "javascript",
+  "typescript",
+  "jsx",
+  "tsx",
+  "html",
+  "css",
+  "json",
+  "python",
+  "bash",
+  "sh",
+  "markdown",
+  "yaml",
+  "sql",
+  "java",
+  "cpp",
+  "c",
+  "csharp",
+  "go",
+  "rust",
+  "php",
+  "ruby",
+  "xml",
+  "dockerfile",
+  "diff",
+];
+
+const REMARK_PLUGINS = [remarkGfm];
+
+const REHYPE_PLUGINS = [
+  rehypeRaw,
+  [
+    rehypeShiki,
+    {
+      themes: {
+        light: "github-light-high-contrast",
+        dark: "github-dark-high-contrast",
+      },
+      defaultColor: false,
+      langs: POPULAR_LANGUAGES,
+      transformers: [
+        {
+          name: "data-language-attribute",
+          pre(node) {
+            if (this.options.lang && this.options.lang !== "text") {
+              node.properties = node.properties || {};
+              node.properties["data-language"] = this.options.lang;
+            }
+          },
+        },
+      ],
+    },
+  ],
+];
 
 const PreviewPane = ({
   value,
@@ -28,8 +76,6 @@ const PreviewPane = ({
   viewportRef,
   wrapCode,
 }) => {
-  const codeLanguages = getFenceLanguages(value || "");
-
   return (
     <ScrollArea
       className="markdown-preview h-full w-full bg-card text-foreground overflow-hidden"
@@ -40,22 +86,18 @@ const PreviewPane = ({
         ref={previewRef}
       >
         <MarkdownHooks
-          remarkPlugins={[remarkGfm]}
-          rehypePlugins={[
-            rehypeRaw,
-            [rehypeShiki, {
-              themes: {
-                light: "github-light-high-contrast",
-                dark: "github-dark-high-contrast",
-              },
-              defaultColor: false,
-            }],
-            preserveCodeLanguages(codeLanguages),
-          ]}
-          fallback={<p className="text-sm text-muted-foreground">Rendering preview…</p>}
+          remarkPlugins={REMARK_PLUGINS}
+          rehypePlugins={REHYPE_PLUGINS}
+          fallback={<PreviewLoading />}
           components={{
             pre: ({ node, children, ...props }) => (
-              <CodeBlock {...props} language={props["data-language"]} wrapCode={wrapCode}>{children}</CodeBlock>
+              <CodeBlock
+                {...props}
+                language={props["data-language"]}
+                wrapCode={wrapCode}
+              >
+                {children}
+              </CodeBlock>
             ),
             a: ({ node, href, children, ...props }) => (
               <a
@@ -69,10 +111,12 @@ const PreviewPane = ({
               </a>
             ),
             table: ({ node, children, ...props }) => (
-              <div className="my-4 w-full overflow-x-auto rounded-md border border-border">
-                <table className="w-full text-left text-sm" {...props}>
-                  {children}
-                </table>
+              <div className="markdown-table-card my-4 w-full overflow-hidden rounded-xl border border-border bg-card">
+                <div className="overflow-x-auto w-full">
+                  <table className="w-full text-left text-sm m-0! border-collapse" {...props}>
+                    {children}
+                  </table>
+                </div>
               </div>
             ),
           }}

@@ -1,9 +1,8 @@
 import React, { useEffect, useState, useRef } from "react";
 import { flushSync } from "react-dom";
 import ModeToggle from "../mode-toggle";
-import { Button } from "../ui/button";
 import { Switch } from "../ui/switch";
-import { Badge } from "../ui/badge";
+
 import {
   Tooltip,
   TooltipContent,
@@ -30,17 +29,17 @@ import {
   PanelLeftClose,
   PanelRightClose,
   HelpCircle,
-  Sparkles,
+  Folder,
 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { FieldLabel } from "../ui/field";
 import handleExport from "../export/HandleExport";
+import { PdfExportDialog } from "../export/PdfExportDialog";
 import { ImGithub } from "react-icons/im";
 
 const TopBar = ({
@@ -54,9 +53,11 @@ const TopBar = ({
   onImportFile,
   viewMode,
   onViewModeChange,
+  onResetSplit,
 }) => {
   const [copied, setCopied] = useState(false);
   const [showCheatSheet, setShowCheatSheet] = useState(false);
+  const [showPdfDialog, setShowPdfDialog] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const fileInputRef = useRef(null);
 
@@ -135,7 +136,7 @@ const TopBar = ({
       });
       previewClone.style.setProperty("box-sizing", "border-box");
       previewClone.style.setProperty("width", "100%");
-      previewClone.style.setProperty("max-width", "56rem", "important");
+      previewClone.style.setProperty("max-width", "48rem", "important");
       previewClone.style.setProperty("margin-left", "auto", "important");
       previewClone.style.setProperty("margin-right", "auto", "important");
     }
@@ -157,8 +158,9 @@ const TopBar = ({
   <title>Exported Markdown</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Google+Sans:ital,opsz,wght@0,17..18,400..700;1,17..18,400..700&display=swap" rel="stylesheet">
   <style>${appStyles}
+    body, .markdown-body { font-family: "Google Sans", sans-serif; }
     body { margin: 0; min-height: 100vh; }
     main.markdown-preview { min-height: 100vh; width: 100%; }
   </style>
@@ -186,7 +188,7 @@ const TopBar = ({
         field.remove();
       }
     });
-  </script>
+  <\/script>
 </body>
 </html>`;
 
@@ -216,16 +218,21 @@ const TopBar = ({
   };
 
   const handleToggleMode = (mode) => {
-    // If clicking the current active mode, toggle back to both (or toggle off)
+    if (mode === "both") {
+      onViewModeChange("both");
+      onResetSplit?.();
+      return;
+    }
+
     if (viewMode === mode) {
       onViewModeChange("both");
+      onResetSplit?.();
     } else {
       onViewModeChange(mode);
     }
   };
 
   const runExportAction = (action) => {
-    // Commit the close before downloads or the native print dialog take focus.
     flushSync(() => setExportMenuOpen(false));
     action();
   };
@@ -235,54 +242,59 @@ const TopBar = ({
       id: "both",
       label: "Split",
       icon: <Columns2 className="size-3.5" />,
-      tooltip: viewMode === "both" ? "Click to toggle single view" : "Switch to Split View",
+      tooltip: viewMode === "both" ? "Currently in Split view" : "Split view",
     },
     {
       id: "editor",
       label: "Write",
       icon: <PanelRightClose className="size-3.5" />,
-      tooltip: viewMode === "editor" ? "Exit Write mode (Split)" : "Editor Only",
+      tooltip: viewMode === "editor" ? "Exit Write mode" : "Editor only",
     },
     {
       id: "preview",
       label: "Preview",
       icon: <PanelLeftClose className="size-3.5" />,
-      tooltip: viewMode === "preview" ? "Exit Preview mode (Split)" : "Preview Only",
+      tooltip: viewMode === "preview" ? "Exit Preview mode" : "Preview only",
     },
   ];
 
   return (
     <>
-      <header className="sticky top-0 z-20 flex h-14 w-full items-center justify-between border-b border-border/80 bg-card/90 px-4 py-2 text-foreground shadow-2xs backdrop-blur-md select-none transition-colors">
-        {/* Left Side: Brand and view layout segmented tab controls */}
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-xs">
-              <FileCode className="h-4 w-4" />
-            </div>
+      {/* ── TopBar shell ───────────────────────────────────────────── */}
+      <header className="topbar sticky top-0 z-20 flex h-12 w-full items-center border-b border-border bg-card px-3 select-none">
 
-            <span className="text-sm font-semibold tracking-tight text-foreground">
-              Markdown Editor
-            </span>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <a
-                  href="https://github.com/CharanMunur/Markdown-Editor"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label="GitHub Repository"
-                  className="rounded-md p-1.5 text-muted-foreground transition hover:bg-accent hover:text-foreground"
-                >
-                  <ImGithub className="size-4" />
-                </a>
-              </TooltipTrigger>
-              <TooltipContent>View GitHub Repository</TooltipContent>
-            </Tooltip>
+        {/* ── LEFT: Brand ──────────────────────────────────────────── */}
+        <div className="flex flex-1 items-center gap-2 min-w-0">
+          {/* Logo mark */}
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+            <FileCode className="h-3.5 w-3.5" />
           </div>
 
-          {/* Clean Segmented Tab Control with obvious active state */}
-          <div className="hidden sm:flex items-center rounded-lg border border-border/80 bg-muted/50 p-1 shadow-inner">
+          {/* Wordmark */}
+          <span className="hidden sm:block text-[13px] font-semibold tracking-tight text-foreground leading-none whitespace-nowrap">
+            Markdown Editor
+          </span>
+
+          {/* GitHub link — icon only */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <a
+                href="https://github.com/CharanMunur/Markdown-Editor"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="GitHub Repository"
+                className="topbar-icon-btn ml-0.5"
+              >
+                <ImGithub className="size-3.5" />
+              </a>
+            </TooltipTrigger>
+            <TooltipContent>View on GitHub</TooltipContent>
+          </Tooltip>
+        </div>
+
+        {/* ── CENTER: View-mode switcher ────────────────────────────── */}
+        <div className="flex items-center">
+          <div className="topbar-seg" role="group" aria-label="View mode">
             {viewModes.map((mode) => {
               const isActive = viewMode === mode.id;
               return (
@@ -291,20 +303,11 @@ const TopBar = ({
                     <button
                       type="button"
                       onClick={() => handleToggleMode(mode.id)}
-                      className={`relative flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-all duration-150 cursor-pointer ${
-                        isActive
-                          ? "bg-background text-foreground shadow-xs ring-1 ring-border/50 font-semibold"
-                          : "text-muted-foreground hover:text-foreground hover:bg-background/40"
-                      }`}
                       aria-pressed={isActive}
+                      className={`topbar-seg-btn${isActive ? " topbar-seg-btn--active" : ""}`}
                     >
-                      <span className={isActive ? "text-primary" : "text-muted-foreground"}>
-                        {mode.icon}
-                      </span>
+                      <span className="topbar-seg-icon">{mode.icon}</span>
                       <span className="hidden md:inline">{mode.label}</span>
-                      {isActive && (
-                        <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-3 h-0.5 bg-primary rounded-full md:hidden" />
-                      )}
                     </button>
                   </TooltipTrigger>
                   <TooltipContent>{mode.tooltip}</TooltipContent>
@@ -314,8 +317,8 @@ const TopBar = ({
           </div>
         </div>
 
-        {/* Right Side: Primary Actions */}
-        <div className="flex items-center gap-2">
+        {/* ── RIGHT: Actions ───────────────────────────────────────── */}
+        <div className="flex flex-1 items-center justify-end gap-1">
           <input
             type="file"
             ref={fileInputRef}
@@ -324,149 +327,171 @@ const TopBar = ({
             className="hidden"
           />
 
+          {/* Import */}
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
+              <button
+                type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="cursor-pointer gap-1.5 font-normal h-8"
+                className="topbar-action-btn"
+                aria-label="Import file"
               >
-                <Upload className="size-3.5 text-muted-foreground" />
-                <span className="hidden sm:inline">Import</span>
-              </Button>
+                <Upload className="size-3.5" />
+                <span className="hidden lg:inline">Import</span>
+              </button>
             </TooltipTrigger>
-            <TooltipContent>Import local .md or .txt file</TooltipContent>
+            <TooltipContent>Import .md or .txt file</TooltipContent>
           </Tooltip>
 
+          {/* Reset */}
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
+              <button
+                type="button"
                 onClick={onReset}
-                className="cursor-pointer gap-1.5 font-normal h-8"
+                className="topbar-action-btn"
+                aria-label="Reset to starter template"
               >
-                <RotateCcwIcon className="size-3.5 text-muted-foreground" />
-                <span className="hidden sm:inline">Reset</span>
-              </Button>
+                <RotateCcwIcon className="size-3.5" />
+                <span className="hidden lg:inline">Reset</span>
+              </button>
             </TooltipTrigger>
-            <TooltipContent>Reset editor to starter template</TooltipContent>
+            <TooltipContent>Reset to starter template</TooltipContent>
           </Tooltip>
 
+          {/* Copy */}
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
+              <button
+                type="button"
                 onClick={handleCopy}
                 disabled={!value}
-                className={`cursor-pointer gap-1.5 font-normal h-8 transition-colors ${
-                  copied ? "border-border bg-muted text-foreground" : ""
-                }`}
+                className={`topbar-action-btn${copied ? " topbar-action-btn--success" : ""}`}
+                aria-label={copied ? "Copied" : "Copy Markdown"}
               >
                 {copied ? (
-                  <Check className="size-3.5 text-foreground" />
+                  <Check className="size-3.5" />
                 ) : (
-                  <Copy className="size-3.5 text-muted-foreground" />
+                  <Copy className="size-3.5" />
                 )}
-                <span>{copied ? "Copied" : "Copy"}</span>
-              </Button>
+                <span className="hidden sm:inline">{copied ? "Copied" : "Copy"}</span>
+              </button>
             </TooltipTrigger>
-            <TooltipContent>Copy Markdown content</TooltipContent>
+            <TooltipContent>Copy Markdown source</TooltipContent>
           </Tooltip>
 
-          {/* Export Dropdown with enhanced options and styling */}
+          {/* Export — primary CTA */}
           <DropdownMenu open={exportMenuOpen} onOpenChange={setExportMenuOpen}>
             <DropdownMenuTrigger asChild>
-              <Button
-                variant="default"
-                size="sm"
-                className="cursor-pointer gap-1.5 h-8 font-medium shadow-xs"
+              <button
+                type="button"
+                className="topbar-export-btn"
+                aria-label="Export document"
               >
                 <Download className="size-3.5" />
                 <span>Export</span>
-                <ChevronDown className="size-3 opacity-70 ml-0.5" />
-              </Button>
+                <ChevronDown className="size-3 opacity-60" />
+              </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent
               align="end"
-              className="w-54 p-1.5 shadow-lg"
+              className="export-menu"
               onPointerDownOutside={() => setExportMenuOpen(false)}
             >
+              {/* Panel header */}
+              <div className="export-menu-header">
+                <Download className="size-3" />
+                <span>Export as</span>
+              </div>
+
+              {/* Markdown */}
               <DropdownMenuItem
-                onSelect={() => {
-                  runExportAction(handleDownloadMarkdown);
-                }}
-                className="cursor-pointer gap-2.5 py-2 px-2.5 rounded-md"
+                onSelect={() => runExportAction(handleDownloadMarkdown)}
+                className="export-menu-item"
               >
-                <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary">
-                  <FileCode className="size-4" />
+                <div className="export-menu-icon">
+                  <FileCode className="size-3.5" />
                 </div>
-                <div className="flex flex-col">
-                  <span className="font-medium text-xs">Markdown source (.md)</span>
-                  <span className="text-[10px] text-muted-foreground">Styling comes from the Markdown viewer</span>
+                <div className="export-menu-text">
+                  <div className="export-menu-label">
+                    <span>Markdown</span>
+                    <span className="export-menu-ext">.md</span>
+                  </div>
+                  <span className="export-menu-sub">Raw source · viewer handles styling</span>
                 </div>
               </DropdownMenuItem>
 
+              {/* HTML */}
               <DropdownMenuItem
-                onSelect={() => {
-                  runExportAction(handleDownloadHtml);
-                }}
-                className="cursor-pointer gap-2.5 py-2 px-2.5 rounded-md"
+                onSelect={() => runExportAction(handleDownloadHtml)}
+                className="export-menu-item"
               >
-                <div className="flex h-7 w-7 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                  <FileText className="size-4" />
+                <div className="export-menu-icon">
+                  <FileText className="size-3.5" />
                 </div>
-                <div className="flex flex-col">
-                  <span className="font-medium text-xs">Standalone HTML</span>
-                  <span className="text-[10px] text-muted-foreground">Self-contained .html page</span>
+                <div className="export-menu-text">
+                  <div className="export-menu-label">
+                    <span>HTML</span>
+                    <span className="export-menu-ext">.html</span>
+                  </div>
+                  <span className="export-menu-sub">Self-contained · styles baked in</span>
                 </div>
               </DropdownMenuItem>
 
-              <DropdownMenuSeparator className="my-1" />
+              {/* Divider + print section */}
+              <div className="export-menu-section-label">Print</div>
 
+              {/* PDF */}
               <DropdownMenuItem
                 onSelect={() => {
-                  runExportAction(() => handleExport(previewRef));
+                  setExportMenuOpen(false);
+                  setTimeout(() => {
+                    document.body.style.pointerEvents = "";
+                    setShowPdfDialog(true);
+                  }, 80);
                 }}
-                className="cursor-pointer gap-2.5 py-2 px-2.5 rounded-md"
+                className="export-menu-item"
               >
-                <div className="flex h-7 w-7 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                  <Printer className="size-4" />
+                <div className="export-menu-icon">
+                  <Printer className="size-3.5" />
                 </div>
-                <div className="flex flex-col">
-                  <span className="font-medium text-xs">Print / PDF</span>
-                  <span className="text-[10px] text-muted-foreground">Direct printer & PDF save</span>
+                <div className="export-menu-text">
+                  <div className="export-menu-label">
+                    <span>PDF Document</span>
+                    <span className="export-menu-ext">PDF</span>
+                  </div>
+                  <span className="export-menu-sub">Custom PDF studio · preview & export</span>
                 </div>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <div className="mx-1 h-5 w-px bg-border/80" />
+          {/* ── Separator ── */}
+          <div className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
 
+          {/* Wrap toggle */}
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
+              <button
                 type="button"
-                aria-pressed={wrapCode}
-                aria-label={`Code wrapping ${wrapCode ? "on" : "off"}`}
                 onClick={() => onToggleCodeWrap(!wrapCode)}
-                className={`h-8 cursor-pointer gap-1.5 px-2.5 font-normal ${wrapCode ? "bg-accent text-accent-foreground" : ""}`}
+                aria-pressed={wrapCode}
+                aria-label={`Code wrap ${wrapCode ? "on" : "off"}`}
+                className={`topbar-icon-btn${wrapCode ? " topbar-icon-btn--active" : ""}`}
               >
-                <WrapText className="size-3.5" aria-hidden="true" />
-                <span>Wrap {wrapCode ? "On" : "Off"}</span>
-              </Button>
+                <WrapText className="size-3.5" />
+              </button>
             </TooltipTrigger>
-            <TooltipContent>{wrapCode ? "Turn off code wrapping" : "Wrap long code lines"}</TooltipContent>
+            <TooltipContent>{wrapCode ? "Disable code wrapping" : "Wrap long code lines"}</TooltipContent>
           </Tooltip>
 
-          {/* Sync Scroll Toggle */}
-          <div className="hidden lg:flex items-center gap-2 px-1">
-            <FieldLabel htmlFor="switch-sync" className="text-xs text-muted-foreground cursor-pointer font-normal select-none">
-              Sync Scroll
+          {/* Sync scroll — compact label + switch */}
+          <div className="hidden xl:flex items-center gap-1.5 px-1">
+            <FieldLabel
+              htmlFor="switch-sync"
+              className="text-[11px] text-muted-foreground cursor-pointer font-normal select-none leading-none whitespace-nowrap"
+            >
+              Sync
             </FieldLabel>
             <Switch
               id="switch-sync"
@@ -475,82 +500,130 @@ const TopBar = ({
             />
           </div>
 
-          {/* Cheatsheet Dialog Trigger */}
+          {/* Help */}
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-sm"
+              <button
+                type="button"
                 onClick={() => setShowCheatSheet(true)}
-                className="cursor-pointer text-muted-foreground hover:text-foreground h-8 w-8"
+                className="topbar-icon-btn"
+                aria-label="Markdown quick reference"
               >
-                <HelpCircle className="size-4" />
-              </Button>
+                <HelpCircle className="size-3.5" />
+              </button>
             </TooltipTrigger>
-            <TooltipContent>Markdown Quick Reference</TooltipContent>
+            <TooltipContent>Markdown quick reference</TooltipContent>
           </Tooltip>
 
-          {/* Dark / Light Mode Toggle */}
+          {/* Theme toggle */}
           <ModeToggle />
         </div>
       </header>
 
-      {/* Shadcn Dialog Component for Syntax CheatSheet */}
+      {/* ── Cheat-sheet dialog ──────────────────────────────────────── */}
       <Dialog open={showCheatSheet} onOpenChange={setShowCheatSheet}>
-        <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-base">
-              <HelpCircle className="size-5 text-primary" />
-              Markdown Quick Reference
-            </DialogTitle>
+        <DialogContent className="cheatsheet-dialog">
+          {/* Header */}
+          <DialogHeader className="cheatsheet-header">
+            <div className="cheatsheet-header-icon">
+              <HelpCircle className="size-4" />
+            </div>
+            <div>
+              <DialogTitle className="cheatsheet-title">
+                Markdown Quick Reference
+              </DialogTitle>
+              <p className="cheatsheet-subtitle">
+                Common syntax for formatting your document
+              </p>
+            </div>
           </DialogHeader>
 
-          <div className="grid grid-cols-2 gap-3 py-2 text-xs">
-            <div className="space-y-1 rounded-lg border border-border/60 bg-muted/30 p-2.5">
-              <span className="font-semibold text-foreground flex items-center justify-between">
-                Headers
-                <Badge variant="outline" className="text-[10px] py-0 px-1 font-mono">#</Badge>
-              </span>
-              <p className="font-mono text-muted-foreground"># Header 1<br/>## Header 2<br/>### Header 3</p>
-            </div>
-            <div className="space-y-1 rounded-lg border border-border/60 bg-muted/30 p-2.5">
-              <span className="font-semibold text-foreground flex items-center justify-between">
-                Emphasis
-                <Badge variant="outline" className="text-[10px] py-0 px-1 font-mono">**</Badge>
-              </span>
-              <p className="font-mono text-muted-foreground">**bold text**<br/>*italic text*<br/>~~strikethrough~~</p>
-            </div>
-            <div className="space-y-1 rounded-lg border border-border/60 bg-muted/30 p-2.5">
-              <span className="font-semibold text-foreground flex items-center justify-between">
-                Lists & Tasks
-                <Badge variant="outline" className="text-[10px] py-0 px-1 font-mono">-</Badge>
-              </span>
-              <p className="font-mono text-muted-foreground">- Bullet list<br/>1. Numbered list<br/>- [ ] Task checkbox</p>
-            </div>
-            <div className="space-y-1 rounded-lg border border-border/60 bg-muted/30 p-2.5">
-              <span className="font-semibold text-foreground flex items-center justify-between">
-                Links & Images
-                <Badge variant="outline" className="text-[10px] py-0 px-1 font-mono">[]()</Badge>
-              </span>
-              <p className="font-mono text-muted-foreground">[Link](url)<br/>![Alt](image_url)</p>
-            </div>
-            <div className="space-y-1 rounded-lg border border-border/60 bg-muted/30 p-2.5">
-              <span className="font-semibold text-foreground flex items-center justify-between">
-                Code
-                <Badge variant="outline" className="text-[10px] py-0 px-1 font-mono">```</Badge>
-              </span>
-              <p className="font-mono text-muted-foreground">`inline code`<br/>```lang<br/>code block<br/>```</p>
-            </div>
-            <div className="space-y-1 rounded-lg border border-border/60 bg-muted/30 p-2.5">
-              <span className="font-semibold text-foreground flex items-center justify-between">
-                Quotes & Rules
-                <Badge variant="outline" className="text-[10px] py-0 px-1 font-mono">&gt;</Badge>
-              </span>
-              <p className="font-mono text-muted-foreground">&gt; Blockquote line<br/>--- (Horizontal rule)</p>
-            </div>
+          {/* Grid of syntax cards */}
+          <div className="cheatsheet-grid">
+            {[
+              {
+                category: "Structure",
+                title: "Headings",
+                syntax: "# H1\n## H2\n### H3",
+                hint: "Use # through ###### for 6 levels",
+                token: "#",
+              },
+              {
+                category: "Structure",
+                title: "Horizontal Rule",
+                syntax: "---\n***\n___",
+                hint: "Three or more hyphens, asterisks, or underscores",
+                token: "---",
+              },
+              {
+                category: "Inline",
+                title: "Emphasis",
+                syntax: "**bold**\n*italic*\n~~strikethrough~~\n`inline code`",
+                hint: "Nest to combine bold + italic",
+                token: "**",
+              },
+              {
+                category: "Inline",
+                title: "Links & Images",
+                syntax: "[Label](https://url)\n![Alt text](image.png)\n[ref]: https://url",
+                hint: "Images use the same syntax with a leading !",
+                token: "[]()",
+              },
+              {
+                category: "Blocks",
+                title: "Lists",
+                syntax: "- Unordered item\n  - Nested item\n1. Ordered item\n- [ ] Task\n- [x] Done",
+                hint: "Indent 2+ spaces to nest",
+                token: "-  1.",
+              },
+              {
+                category: "Blocks",
+                title: "Blockquote",
+                syntax: "> First level\n>> Nested quote\n>\n> New paragraph",
+                hint: "Use >> to nest quotes",
+                token: ">",
+              },
+              {
+                category: "Code",
+                title: "Code Blocks",
+                syntax: "```js\nconst x = 1;\n```\n\n`inline`",
+                hint: "Add a language name for syntax highlighting",
+                token: "```",
+              },
+              {
+                category: "Blocks",
+                title: "Tables",
+                syntax: "| Col A | Col B |\n|-------|-------|\n| val   | val   |",
+                hint: "Use :--- ----: :---: for alignment",
+                token: "| |",
+              },
+            ].map(({ category, title, syntax, hint, token }) => (
+              <div key={title} className="cheatsheet-card">
+                <div className="cheatsheet-card-header">
+                  <div className="cheatsheet-card-title">{title}</div>
+                  <code className="cheatsheet-token">{token}</code>
+                </div>
+                <pre className="cheatsheet-syntax">{syntax}</pre>
+                <p className="cheatsheet-hint">{hint}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Footer tip */}
+          <div className="cheatsheet-footer">
+            <span className="cheatsheet-footer-label">GFM</span>
+            <span>GitHub Flavored Markdown is fully supported — tables, task lists, and auto-links included.</span>
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* ── Custom PDF Export Studio Dialog ───────────────────────────── */}
+      <PdfExportDialog
+        open={showPdfDialog}
+        onOpenChange={setShowPdfDialog}
+        previewRef={previewRef}
+        isDarkMode={document.documentElement.classList.contains("dark")}
+      />
     </>
   );
 };

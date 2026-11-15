@@ -1,8 +1,12 @@
 import printJS from "print-js";
 import "print-js/dist/print.css";
 
-export default function handleExport(previewRef) {
+export default function handleExport(previewRef, fileName = "document") {
   if (!previewRef.current) return;
+
+  const cleanName = fileName.trim().replace(/\.pdf$/i, "") || "document";
+  const prevTitle = document.title;
+  document.title = cleanName;
 
   // Detect if we're in dark mode
   const isDarkMode = document.documentElement.classList.contains("dark");
@@ -21,11 +25,14 @@ export default function handleExport(previewRef) {
     // print-js otherwise appends a 12pt !important font size to every copied node.
     // An empty value leaves that declaration invalid so each computed font size survives.
     font_size: "",
-    maxWidth: 896,
-    documentTitle: "Markdown Export",
+    maxWidth: 768,
+    documentTitle: cleanName,
+    onPrintDialogClose: () => {
+      document.title = prevTitle;
+    },
     style: `
-      @import url('https://fonts.googleapis.com/css2?family=Ubuntu:wght@300;400;500;600&display=swap');
-      body, .markdown-body { font-family: "Ubuntu", sans-serif !important; }
+      @import url('https://fonts.googleapis.com/css2?family=Google+Sans:ital,opsz,wght@0,17..18,400..700;1,17..18,400..700&display=swap');
+      body, .markdown-body { font-family: "Google Sans", sans-serif !important; }
       .markdown-code-copy { display: none !important; }
       @media print {
         @page {
@@ -47,32 +54,133 @@ export default function handleExport(previewRef) {
           padding: 0 !important;
         }
 
+        /* Base document container */
         .markdown-body {
           box-sizing: border-box !important;
           width: 100% !important;
-          max-width: 56rem !important;
+          max-width: 48rem !important;
           margin-left: auto !important;
           margin-right: auto !important;
-          padding-left: 24px !important;
-          padding-right: 24px !important;
+          padding-left: 0 !important;
+          padding-right: 0 !important;
         }
 
+        /* Universal width standard: every block element matches the codeblock width */
+        .markdown-body > *,
+        .markdown-body p,
+        .markdown-body h1,
+        .markdown-body h2,
+        .markdown-body h3,
+        .markdown-body h4,
+        .markdown-body h5,
+        .markdown-body h6,
+        .markdown-body ul,
+        .markdown-body ol,
+        .markdown-body blockquote,
+        .markdown-body hr,
         .markdown-body .markdown-code-card,
-        .markdown-body .markdown-code-content {
+        .markdown-body .markdown-code-content,
+        .markdown-body .markdown-table-card,
+        .markdown-body table {
           box-sizing: border-box !important;
           width: 100% !important;
           max-width: 100% !important;
+          margin-left: 0 !important;
+          margin-right: 0 !important;
         }
 
-        .markdown-body .markdown-code-card {
+        /* Tables occupy full card width uniformly */
+        .markdown-body table {
+          display: table !important;
+          margin: 0 !important;
+          border-collapse: collapse !important;
+        }
+
+        .markdown-body table th,
+        .markdown-body table td {
+          box-sizing: border-box !important;
+        }
+
+        .markdown-body .markdown-code-card,
+        .markdown-body .markdown-table-card,
+        .markdown-body blockquote {
           break-inside: avoid !important;
           page-break-inside: avoid !important;
           break-before: avoid-page !important;
           page-break-before: avoid !important;
-          margin-left: 0 !important;
-          margin-right: 0 !important;
           overflow: visible !important;
         }
+
+        /* Theme-consistent styling across light and dark modes */
+        ${isDarkMode ? `
+          body {
+            background-color: #000000 !important;
+            color: #ededed !important;
+          }
+          .markdown-body {
+            color: #ededed !important;
+          }
+          .markdown-body .markdown-code-card {
+            background-color: #161616 !important;
+            border-color: #303030 !important;
+          }
+          .markdown-body .markdown-table-card {
+            background-color: #0c0c0c !important;
+            border-color: #303030 !important;
+          }
+          .markdown-body .markdown-table-card th {
+            background-color: #1a1a1a !important;
+            color: #ededed !important;
+            border-color: #303030 !important;
+          }
+          .markdown-body .markdown-table-card td {
+            background-color: #0c0c0c !important;
+            color: #ededed !important;
+            border-color: #242424 !important;
+          }
+          .markdown-body .markdown-table-card tr:nth-child(2n) td {
+            background-color: #141414 !important;
+          }
+          .markdown-body blockquote {
+            background-color: #161616 !important;
+            border-left: 4px solid #383838 !important;
+            color: #ededed !important;
+          }
+        ` : `
+          body {
+            background-color: #ffffff !important;
+            color: #0d0d0d !important;
+          }
+          .markdown-body {
+            color: #0d0d0d !important;
+          }
+          .markdown-body .markdown-code-card {
+            background-color: #f7f7f7 !important;
+            border-color: #e1e1e1 !important;
+          }
+          .markdown-body .markdown-table-card {
+            background-color: #ffffff !important;
+            border-color: #e1e1e1 !important;
+          }
+          .markdown-body .markdown-table-card th {
+            background-color: #f0f0f0 !important;
+            color: #0d0d0d !important;
+            border-color: #e1e1e1 !important;
+          }
+          .markdown-body .markdown-table-card td {
+            background-color: #ffffff !important;
+            color: #0d0d0d !important;
+            border-color: #e5e5e5 !important;
+          }
+          .markdown-body .markdown-table-card tr:nth-child(2n) td {
+            background-color: #f9f9f9 !important;
+          }
+          .markdown-body blockquote {
+            background-color: #f7f7f7 !important;
+            border-left: 4px solid #d1d5db !important;
+            color: #0d0d0d !important;
+          }
+        `}
 
         /* Keep section titles, their descriptions, and the following code together. */
         .markdown-body :is(h1, h2, h3, h4, h5, h6) {
@@ -104,6 +212,11 @@ export default function handleExport(previewRef) {
       }
     `
   });
+
+  // Fallback restoration in case onPrintDialogClose is unsupported
+  setTimeout(() => {
+    document.title = prevTitle;
+  }, 4000);
 
   // Restore ID if we changed it
   if (!originalId) {

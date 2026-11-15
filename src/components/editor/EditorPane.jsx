@@ -2,6 +2,14 @@ import React, { useCallback, useRef, useEffect } from "react";
 import { Editor } from "@monaco-editor/react";
 import { useTheme } from "@/providers/theme/theme-provider";
 import { EditorToolbar } from "./EditorToolbar";
+import { Spinner } from "../ui/spinner";
+
+const EditorLoading = () => (
+  <div className="flex h-full w-full items-center justify-center gap-2.5 text-muted-foreground select-none">
+    <Spinner className="size-4 text-muted-foreground" />
+    <span className="text-xs font-medium tracking-tight">Loading editor…</span>
+  </div>
+);
 
 const EditorPane = ({
   value,
@@ -84,8 +92,10 @@ const EditorPane = ({
           onChange={handleChange}
           beforeMount={handleBeforeMount}
           onMount={handleEditorDidMount}
+          loading={<EditorLoading />}
           theme={theme === "dark" ? "custom-dark" : "custom-light"}
           options={{
+            automaticLayout: true,
             wordWrap: "on",
             minimap: { enabled: false },
             fontSize: 14,

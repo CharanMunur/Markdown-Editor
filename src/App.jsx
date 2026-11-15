@@ -95,6 +95,16 @@ const App = () => {
     }
   }, [value]);
 
+  const handleResetSplit = useCallback(() => {
+    setEditorWidth(50);
+    setViewMode("both");
+    if (monacoEditorRef.current) {
+      setTimeout(() => {
+        monacoEditorRef.current?.layout();
+      }, 60);
+    }
+  }, []);
+
   const handleEditorSync = (ratio) => {
     if (!syncEnabled) return;
     const el = previewViewportRef.current;
@@ -108,12 +118,6 @@ const App = () => {
 
   const handleEditorReady = (editor) => {
     monacoEditorRef.current = editor;
-    editor.onDidChangeCursorPosition((e) => {
-      setCursorPosition({
-        line: e.position.lineNumber,
-        column: e.position.column,
-      });
-    });
   };
 
   return (
@@ -130,6 +134,7 @@ const App = () => {
           onImportFile={setValue}
           viewMode={viewMode}
           onViewModeChange={setViewMode}
+          onResetSplit={handleResetSplit}
         />
 
         <div
@@ -139,7 +144,7 @@ const App = () => {
           {/* Editor Pane */}
           {(viewMode === "both" || viewMode === "editor") && (
             <div
-              className="h-full min-w-0 shrink-0"
+              className={`h-full min-w-0 shrink-0 ${isResizing ? "" : "transition-[width] duration-150 ease-out"}`}
               style={{
                 width: viewMode === "both" ? `${editorWidth}%` : "100%",
               }}
@@ -161,6 +166,8 @@ const App = () => {
               aria-label="Resize panes"
               aria-orientation="vertical"
               onPointerDown={handleResizeStart}
+              onDoubleClick={handleResetSplit}
+              title="Drag to resize, double-click to reset 50/50"
               className="group relative w-2 shrink-0 cursor-col-resize touch-none bg-background select-none"
             >
               <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border group-hover:bg-primary/40 group-active:bg-primary transition-colors" />
