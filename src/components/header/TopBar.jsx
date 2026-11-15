@@ -139,6 +139,10 @@ const TopBar = ({
       previewClone.style.setProperty("max-width", "48rem", "important");
       previewClone.style.setProperty("margin-left", "auto", "important");
       previewClone.style.setProperty("margin-right", "auto", "important");
+      previewClone.querySelectorAll(".markdown-code-copy").forEach((button) => {
+        button.style.setProperty("opacity", "1", "important");
+        button.style.setProperty("pointer-events", "auto", "important");
+      });
     }
     const appStyles = Array.from(document.styleSheets)
       .map((sheet) => {

@@ -145,7 +145,7 @@ export function PdfExportDialog({
         },
       });
 
-      // 4. Calculate page slicing
+      // 4. Paginate the captured sheet without cutting code blocks across pages.
       const isPortrait = orientation === "portrait";
       const pageWidthMm = format === "a4" ? (isPortrait ? 210 : 297) : (isPortrait ? 215.9 : 279.4);
       const pageHeightMm = format === "a4" ? (isPortrait ? 297 : 210) : (isPortrait ? 279.4 : 215.9);
@@ -156,23 +156,88 @@ export function PdfExportDialog({
         format,
       });
 
-      const imgData = canvas.toDataURL("image/png");
-      const imgWidth = pageWidthMm;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      const wrapperBounds = wrapper.getBoundingClientRect();
+      const canvasScaleY = canvas.height / wrapperBounds.height;
+      const pageHeightPx = (canvas.width * pageHeightMm) / pageWidthMm;
+      const pageMarginPx = Math.round(marginNum * 3.78) * canvasScaleY;
+      const millimetersPerPixel = pageWidthMm / canvas.width;
+      const backgroundColor = theme === "dark" ? [12, 12, 12] : [255, 255, 255];
+      const blocksToKeepTogether = Array.from(
+        wrapper.querySelectorAll(
+          ".markdown-code-card, .markdown-table-card, blockquote, h1, h2, h3, h4, h5, h6"
+        )
+      ).map((element) => {
+        const bounds = element.getBoundingClientRect();
+        let top = bounds.top;
+        const previousElement = element.previousElementSibling;
+        if (
+          element.classList.contains("markdown-code-card") &&
+          previousElement &&
+          /^H[1-6]$/.test(previousElement.tagName)
+        ) {
+          const previousBounds = previousElement.getBoundingClientRect();
+          if (bounds.top - previousBounds.bottom <= 96) top = previousBounds.top;
+        }
+        return {
+          top: (top - wrapperBounds.top) * canvasScaleY,
+          bottom: (bounds.bottom - wrapperBounds.top) * canvasScaleY,
+        };
+      });
 
-      let heightLeft = imgHeight;
-      let position = 0;
+      let sourceY = 0;
+      let pageIndex = 0;
+      while (sourceY < canvas.height) {
+        const topInsetPx = pageIndex === 0 ? 0 : pageMarginPx;
+        const availableHeightPx = pageHeightPx - topInsetPx - pageMarginPx;
+        let pageEnd = Math.min(canvas.height, sourceY + availableHeightPx);
 
-      // Add first page
-      doc.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight, undefined, "FAST");
-      heightLeft -= pageHeightMm;
+        if (pageEnd < canvas.height) {
+          const breakBefore = blocksToKeepTogether
+            .filter((block) =>
+              block.top < pageEnd &&
+              block.bottom > pageEnd &&
+              block.bottom - block.top <= availableHeightPx &&
+              block.top - sourceY >= availableHeightPx * 0.2
+            )
+            .reduce((earliest, block) => Math.min(earliest, block.top), pageEnd);
 
-      // Add subsequent pages if needed
-      while (heightLeft > 0) {
-        position = heightLeft - imgHeight;
-        doc.addPage();
-        doc.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight, undefined, "FAST");
-        heightLeft -= pageHeightMm;
+          if (breakBefore < pageEnd) pageEnd = Math.floor(breakBefore);
+        }
+
+        // If a block is taller than a printable page, split it rather than loop forever.
+        if (pageEnd <= sourceY) pageEnd = Math.min(canvas.height, sourceY + availableHeightPx);
+        const sliceHeight = Math.max(1, Math.ceil(pageEnd - sourceY));
+        const pageCanvas = document.createElement("canvas");
+        pageCanvas.width = canvas.width;
+        pageCanvas.height = sliceHeight;
+        pageCanvas.getContext("2d").drawImage(
+          canvas,
+          0,
+          sourceY,
+          canvas.width,
+          sliceHeight,
+          0,
+          0,
+          canvas.width,
+          sliceHeight
+        );
+
+        doc.setFillColor(...backgroundColor);
+        doc.rect(0, 0, pageWidthMm, pageHeightMm, "F");
+        doc.addImage(
+          pageCanvas.toDataURL("image/png"),
+          "PNG",
+          0,
+          topInsetPx * millimetersPerPixel,
+          pageWidthMm,
+          sliceHeight * millimetersPerPixel,
+          undefined,
+          "FAST"
+        );
+
+        sourceY = pageEnd;
+        pageIndex += 1;
+        if (sourceY < canvas.height) doc.addPage();
       }
 
       // 5. Universal direct file download via Blob URL
