@@ -1,16 +1,35 @@
 import React from "react";
-import Markdown from "react-markdown";
-import rehypeHighlight from "rehype-highlight";
+import { MarkdownHooks } from "react-markdown";
+import rehypeShiki from "@shikijs/rehype";
 import rehypeRaw from "rehype-raw";
 import remarkGfm from "remark-gfm";
 import { ScrollArea } from "../ui/scroll-area";
 import { CodeBlock } from "./CodeBlock";
 
+const getFenceLanguages = (markdown) =>
+  Array.from(markdown.matchAll(/^ {0,3}(`{3,}|~{3,})\s*([A-Za-z][\w+#.-]*)?/gm), (match) => match[2] || "Code");
+
+const preserveCodeLanguages = (languages) => () => (tree) => {
+  let languageIndex = 0;
+  const visit = (node) => {
+    const rawClasses = node.properties?.className ?? node.properties?.class;
+    const classes = Array.isArray(rawClasses) ? rawClasses : String(rawClasses || "").split(/\s+/);
+    if (node.type === "element" && node.tagName === "pre" && classes.includes("shiki")) {
+      node.properties["data-language"] = languages[languageIndex++] || "Code";
+    }
+    for (const child of node.children || []) visit(child);
+  };
+  visit(tree);
+};
+
 const PreviewPane = ({
   value,
   previewRef,
   viewportRef,
+  wrapCode,
 }) => {
+  const codeLanguages = getFenceLanguages(value || "");
+
   return (
     <ScrollArea
       className="markdown-preview h-full w-full bg-card text-foreground overflow-hidden"
@@ -20,12 +39,23 @@ const PreviewPane = ({
         className="markdown-body w-full max-w-full p-4 sm:p-6 pb-16"
         ref={previewRef}
       >
-        <Markdown
+        <MarkdownHooks
           remarkPlugins={[remarkGfm]}
-          rehypePlugins={[rehypeRaw, rehypeHighlight]}
+          rehypePlugins={[
+            rehypeRaw,
+            [rehypeShiki, {
+              themes: {
+                light: "github-light-high-contrast",
+                dark: "github-dark-high-contrast",
+              },
+              defaultColor: false,
+            }],
+            preserveCodeLanguages(codeLanguages),
+          ]}
+          fallback={<p className="text-sm text-muted-foreground">Rendering preview…</p>}
           components={{
             pre: ({ node, children, ...props }) => (
-              <CodeBlock {...props}>{children}</CodeBlock>
+              <CodeBlock {...props} language={props["data-language"]} wrapCode={wrapCode}>{children}</CodeBlock>
             ),
             a: ({ node, href, children, ...props }) => (
               <a
@@ -48,7 +78,7 @@ const PreviewPane = ({
           }}
         >
           {value}
-        </Markdown>
+        </MarkdownHooks>
       </article>
     </ScrollArea>
   );

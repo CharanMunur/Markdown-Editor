@@ -20,7 +20,7 @@ export default defineConfig({
       output: {
         manualChunks: {
           "react-vendor": ["react", "react-dom"],
-          "markdown-vendor": ["react-markdown", "remark-gfm", "rehype-highlight", "rehype-raw"],
+          "markdown-vendor": ["react-markdown", "remark-gfm", "@shikijs/rehype", "rehype-raw"],
           "ui-icons": ["lucide-react", "react-icons"],
         },
       },

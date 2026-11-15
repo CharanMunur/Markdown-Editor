@@ -22,6 +22,7 @@ const App = () => {
   });
 
   const [syncEnabled, setSyncEnabled] = useState(false);
+  const [wrapCode, setWrapCode] = useState(true);
   const [editorWidth, setEditorWidth] = useState(50);
   const [isResizing, setIsResizing] = useState(false);
   const [viewMode, setViewMode] = useState("both"); // 'both' | 'editor' | 'preview'
@@ -124,6 +125,8 @@ const App = () => {
           previewRef={previewRef}
           syncEnabled={syncEnabled}
           onToggleSync={setSyncEnabled}
+          wrapCode={wrapCode}
+          onToggleCodeWrap={setWrapCode}
           onImportFile={setValue}
           viewMode={viewMode}
           onViewModeChange={setViewMode}
@@ -172,6 +175,7 @@ const App = () => {
                 value={value}
                 previewRef={previewRef}
                 viewportRef={previewViewportRef}
+                wrapCode={wrapCode}
               />
             </div>
           )}

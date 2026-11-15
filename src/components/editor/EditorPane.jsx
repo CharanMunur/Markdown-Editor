@@ -28,27 +28,29 @@ const EditorPane = ({
   const handleBeforeMount = useCallback((monaco) => {
     monaco.editor.defineTheme("custom-dark", {
       base: "vs-dark",
-      inherit: true,
+      inherit: false,
       rules: [],
       colors: {
-        "editor.background": "#0c0d0e",
-        "editor.lineHighlightBackground": "#16181a",
-        "editorCursor.foreground": "#38bdf8",
-        "editorLineNumber.foreground": "#4b5563",
-        "editorLineNumber.activeForeground": "#9ca3af",
+        "editor.background": "#000000",
+        "editor.foreground": "#ededed",
+        "editor.lineHighlightBackground": "#121212",
+        "editorCursor.foreground": "#ededed",
+        "editorLineNumber.foreground": "#666666",
+        "editorLineNumber.activeForeground": "#b3b3b3",
       },
     });
 
     monaco.editor.defineTheme("custom-light", {
       base: "vs",
-      inherit: true,
+      inherit: false,
       rules: [],
       colors: {
         "editor.background": "#ffffff",
-        "editor.lineHighlightBackground": "#f8fafc",
-        "editorCursor.foreground": "#0284c7",
-        "editorLineNumber.foreground": "#94a3b8",
-        "editorLineNumber.activeForeground": "#334155",
+        "editor.foreground": "#0d0d0d",
+        "editor.lineHighlightBackground": "#f4f4f4",
+        "editorCursor.foreground": "#0d0d0d",
+        "editorLineNumber.foreground": "#a3a3a3",
+        "editorLineNumber.activeForeground": "#404040",
       },
     });
   }, []);

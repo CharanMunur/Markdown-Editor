@@ -1,4 +1,5 @@
-import React, { useState, useRef } from "react";
+import React, { useEffect, useState, useRef } from "react";
+import { flushSync } from "react-dom";
 import ModeToggle from "../mode-toggle";
 import { Button } from "../ui/button";
 import { Switch } from "../ui/switch";
@@ -23,6 +24,7 @@ import {
   FileCode,
   FileText,
   Printer,
+  WrapText,
   ChevronDown,
   Columns2,
   PanelLeftClose,
@@ -47,13 +49,30 @@ const TopBar = ({
   previewRef,
   syncEnabled,
   onToggleSync,
+  wrapCode,
+  onToggleCodeWrap,
   onImportFile,
   viewMode,
   onViewModeChange,
 }) => {
   const [copied, setCopied] = useState(false);
   const [showCheatSheet, setShowCheatSheet] = useState(false);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    if (!exportMenuOpen) return undefined;
+
+    const closeOnOutsidePointer = (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest('[data-slot="dropdown-menu-trigger"], [data-slot="dropdown-menu-content"]')) return;
+      setExportMenuOpen(false);
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsidePointer, true);
+    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer, true);
+  }, [exportMenuOpen]);
 
   const handleCopy = async () => {
     const text = value ?? "";
@@ -93,25 +112,81 @@ const TopBar = ({
   };
 
   const handleDownloadHtml = () => {
+    const themeClass = document.documentElement.classList.contains("dark") ? "dark" : "light";
+    const previewClone = previewRef?.current?.cloneNode(true);
+    if (previewClone && previewRef?.current) {
+      const copiedStyles = [
+        "color", "background-color", "font-family", "font-size", "font-weight", "font-style",
+        "line-height", "letter-spacing", "text-align", "text-decoration", "text-transform",
+        "white-space", "overflow-wrap", "word-break", "display", "vertical-align",
+        "list-style-type", "list-style-position", "margin-top", "margin-right", "margin-bottom",
+        "margin-left", "padding-top", "padding-right", "padding-bottom", "padding-left",
+        "border-top-width", "border-right-width", "border-bottom-width", "border-left-width",
+        "border-color", "border-style", "border-radius", "border-collapse", "max-width",
+        "opacity", "box-sizing", "overflow-x", "overflow-y", "gap", "align-items", "justify-content",
+      ];
+      const originalNodes = [previewRef.current, ...previewRef.current.querySelectorAll("*")];
+      const clonedNodes = [previewClone, ...previewClone.querySelectorAll("*")];
+      originalNodes.forEach((node, index) => {
+        const computed = window.getComputedStyle(node);
+        for (const property of copiedStyles) {
+          clonedNodes[index].style.setProperty(property, computed.getPropertyValue(property));
+        }
+      });
+      previewClone.style.setProperty("box-sizing", "border-box");
+      previewClone.style.setProperty("width", "100%");
+      previewClone.style.setProperty("max-width", "56rem", "important");
+      previewClone.style.setProperty("margin-left", "auto", "important");
+      previewClone.style.setProperty("margin-right", "auto", "important");
+    }
+    const appStyles = Array.from(document.styleSheets)
+      .map((sheet) => {
+        try {
+          return Array.from(sheet.cssRules, (rule) => rule.cssText).join("\n");
+        } catch {
+          return "";
+        }
+      })
+      .filter(Boolean)
+      .join("\n");
     const htmlContent = `<!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="${themeClass}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Exported Markdown</title>
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 820px; margin: 40px auto; padding: 0 24px; line-height: 1.6; color: #24292f; }
-    pre { background: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
-    code { font-family: monospace; background: #afb8c133; padding: 0.2em 0.4em; border-radius: 4px; }
-    pre code { background: none; padding: 0; }
-    blockquote { border-left: 4px solid #d0d7de; margin: 0; padding-left: 1em; color: #57609a; }
-    table { border-collapse: collapse; width: 100%; margin: 16px 0; }
-    th, td { border: 1px solid #d0d7de; padding: 6px 13px; text-align: left; }
-    th { background: #f6f8fa; }
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>${appStyles}
+    body { margin: 0; min-height: 100vh; }
+    main.markdown-preview { min-height: 100vh; width: 100%; }
   </style>
 </head>
 <body>
-  ${previewRef?.current ? previewRef.current.innerHTML : value}
+  <main class="markdown-preview">
+    ${previewClone ? previewClone.outerHTML : value}
+  </main>
+  <script>
+    document.addEventListener("click", async (event) => {
+      const button = event.target.closest(".markdown-code-copy");
+      if (!button) return;
+      const code = button.closest(".markdown-code-card")?.querySelector("pre")?.innerText;
+      if (code == null) return;
+      try {
+        await navigator.clipboard.writeText(code);
+        button.setAttribute("aria-label", "Copied");
+        setTimeout(() => button.setAttribute("aria-label", "Copy code"), 1400);
+      } catch (error) {
+        const field = document.createElement("textarea");
+        field.value = code;
+        document.body.appendChild(field);
+        field.select();
+        document.execCommand("copy");
+        field.remove();
+      }
+    });
+  </script>
 </body>
 </html>`;
 
@@ -147,6 +222,12 @@ const TopBar = ({
     } else {
       onViewModeChange(mode);
     }
+  };
+
+  const runExportAction = (action) => {
+    // Commit the close before downloads or the native print dialog take focus.
+    flushSync(() => setExportMenuOpen(false));
+    action();
   };
 
   const viewModes = [
@@ -281,11 +362,11 @@ const TopBar = ({
                 onClick={handleCopy}
                 disabled={!value}
                 className={`cursor-pointer gap-1.5 font-normal h-8 transition-colors ${
-                  copied ? "border-green-500/50 bg-green-500/10 text-green-600 dark:text-green-400" : ""
+                  copied ? "border-border bg-muted text-foreground" : ""
                 }`}
               >
                 {copied ? (
-                  <Check className="size-3.5 text-green-500" />
+                  <Check className="size-3.5 text-foreground" />
                 ) : (
                   <Copy className="size-3.5 text-muted-foreground" />
                 )}
@@ -296,7 +377,7 @@ const TopBar = ({
           </Tooltip>
 
           {/* Export Dropdown with enhanced options and styling */}
-          <DropdownMenu>
+          <DropdownMenu open={exportMenuOpen} onOpenChange={setExportMenuOpen}>
             <DropdownMenuTrigger asChild>
               <Button
                 variant="default"
@@ -308,25 +389,33 @@ const TopBar = ({
                 <ChevronDown className="size-3 opacity-70 ml-0.5" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-54 p-1.5 shadow-lg">
+            <DropdownMenuContent
+              align="end"
+              className="w-54 p-1.5 shadow-lg"
+              onPointerDownOutside={() => setExportMenuOpen(false)}
+            >
               <DropdownMenuItem
-                onClick={handleDownloadMarkdown}
+                onSelect={() => {
+                  runExportAction(handleDownloadMarkdown);
+                }}
                 className="cursor-pointer gap-2.5 py-2 px-2.5 rounded-md"
               >
                 <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary">
                   <FileCode className="size-4" />
                 </div>
                 <div className="flex flex-col">
-                  <span className="font-medium text-xs">Markdown (.md)</span>
-                  <span className="text-[10px] text-muted-foreground">Standard markdown file</span>
+                  <span className="font-medium text-xs">Markdown source (.md)</span>
+                  <span className="text-[10px] text-muted-foreground">Styling comes from the Markdown viewer</span>
                 </div>
               </DropdownMenuItem>
 
               <DropdownMenuItem
-                onClick={handleDownloadHtml}
+                onSelect={() => {
+                  runExportAction(handleDownloadHtml);
+                }}
                 className="cursor-pointer gap-2.5 py-2 px-2.5 rounded-md"
               >
-                <div className="flex h-7 w-7 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-500">
+                <div className="flex h-7 w-7 items-center justify-center rounded-md bg-muted text-muted-foreground">
                   <FileText className="size-4" />
                 </div>
                 <div className="flex flex-col">
@@ -338,10 +427,12 @@ const TopBar = ({
               <DropdownMenuSeparator className="my-1" />
 
               <DropdownMenuItem
-                onClick={() => handleExport(previewRef)}
+                onSelect={() => {
+                  runExportAction(() => handleExport(previewRef));
+                }}
                 className="cursor-pointer gap-2.5 py-2 px-2.5 rounded-md"
               >
-                <div className="flex h-7 w-7 items-center justify-center rounded-md bg-amber-500/10 text-amber-500">
+                <div className="flex h-7 w-7 items-center justify-center rounded-md bg-muted text-muted-foreground">
                   <Printer className="size-4" />
                 </div>
                 <div className="flex flex-col">
@@ -353,6 +444,24 @@ const TopBar = ({
           </DropdownMenu>
 
           <div className="mx-1 h-5 w-px bg-border/80" />
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                type="button"
+                aria-pressed={wrapCode}
+                aria-label={`Code wrapping ${wrapCode ? "on" : "off"}`}
+                onClick={() => onToggleCodeWrap(!wrapCode)}
+                className={`h-8 cursor-pointer gap-1.5 px-2.5 font-normal ${wrapCode ? "bg-accent text-accent-foreground" : ""}`}
+              >
+                <WrapText className="size-3.5" aria-hidden="true" />
+                <span>Wrap {wrapCode ? "On" : "Off"}</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{wrapCode ? "Turn off code wrapping" : "Wrap long code lines"}</TooltipContent>
+          </Tooltip>
 
           {/* Sync Scroll Toggle */}
           <div className="hidden lg:flex items-center gap-2 px-1">
