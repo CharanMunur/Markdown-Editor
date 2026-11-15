@@ -75,7 +75,8 @@ async function renderPdfPages({ previewElement, format, orientation, theme, marg
   clone.style.minHeight = "0";
   clone.style.overflow = "visible";
   clone.style.margin = "0";
-  clone.style.padding = "0";
+  // PreviewPane uses 24px article padding at the export viewport width.
+  clone.style.padding = "24px";
   clone.style.fontFamily = "'Google Sans', sans-serif";
   clone.style.backgroundColor = "transparent";
   clone.style.color = "inherit";
@@ -84,7 +85,7 @@ async function renderPdfPages({ previewElement, format, orientation, theme, marg
   document.body.appendChild(wrapper);
 
   try {
-    let layout = { wrapperHeight: 0, breakUnits: [] };
+    let layout = { wrapperHeight: 0, wrapperWidth: 0, breakUnits: [], codeCards: [] };
     const canvas = await html2canvas(wrapper, {
       scale: 2,
       useCORS: true,
@@ -100,11 +101,14 @@ async function renderPdfPages({ previewElement, format, orientation, theme, marg
         const toRelativeBounds = (element) => {
           const bounds = element.getBoundingClientRect();
           return {
+            left: bounds.left - wrapperBounds.left,
+            right: bounds.right - wrapperBounds.left,
             top: bounds.top - wrapperBounds.top,
             bottom: bounds.bottom - wrapperBounds.top,
           };
         };
         const breakUnits = [];
+        const codeCards = [];
         const markdownBody = clonedWrapper.querySelector(".markdown-body") || clonedWrapper;
 
         markdownBody.querySelectorAll("h1, h2, h3, h4, h5, h6").forEach((heading) => {
@@ -119,6 +123,8 @@ async function renderPdfPages({ previewElement, format, orientation, theme, marg
 
         markdownBody.querySelectorAll(".markdown-code-card").forEach((card) => {
           const cardBounds = toRelativeBounds(card);
+          const language = card.querySelector(".markdown-code-header > span")?.textContent?.trim() || "Code";
+          codeCards.push({ ...cardBounds, language });
           let groupTop = cardBounds.top;
           let previous = card.previousElementSibling;
           while (previous && /^(H[1-6]|P)$/.test(previous.tagName)) {
@@ -143,14 +149,21 @@ async function renderPdfPages({ previewElement, format, orientation, theme, marg
             });
           }
 
-          breakUnits.push({ ...cardBounds, top: groupTop, moveTo: groupTop, kind: "code-card" });
+          // Measure the card itself for page fit, but move its heading/preamble with it.
+          breakUnits.push({ ...cardBounds, moveTo: groupTop, kind: "code-card" });
         });
 
-        layout = { wrapperHeight: wrapperBounds.height, breakUnits };
+        layout = {
+          wrapperHeight: wrapperBounds.height,
+          wrapperWidth: wrapperBounds.width,
+          breakUnits,
+          codeCards,
+        };
       },
     });
 
     const canvasScaleY = canvas.height / Math.max(layout.wrapperHeight, 1);
+    const canvasScaleX = canvas.width / Math.max(layout.wrapperWidth, 1);
     const pageHeightPx = Math.ceil((canvas.width * pageSize.height) / pageSize.width);
     const marginPx = Math.round(margins * 3.78) * canvasScaleY;
     const backgroundColor = theme === "dark" ? "#0c0c0c" : "#ffffff";
@@ -161,13 +174,25 @@ async function renderPdfPages({ previewElement, format, orientation, theme, marg
       moveTo: unit.moveTo * canvasScaleY,
       kind: unit.kind,
     }));
+    const codeCards = layout.codeCards.map((card) => ({
+      ...card,
+      left: card.left * canvasScaleX,
+      right: card.right * canvasScaleX,
+      top: card.top * canvasScaleY,
+      bottom: card.bottom * canvasScaleY,
+    }));
     const pages = [];
     let sourceY = 0;
     let pageIndex = 0;
 
     while (sourceY < canvas.height) {
       const topInset = pageIndex === 0 ? 0 : marginPx;
-      const availableHeight = Math.max(1, Math.floor(pageHeightPx - topInset - marginPx));
+      const continuingCard = codeCards.find((card) => card.top < sourceY && card.bottom > sourceY);
+      const continuedHeaderHeight = continuingCard ? Math.round(40 * canvasScaleY) : 0;
+      const availableHeight = Math.max(
+        1,
+        Math.floor(pageHeightPx - topInset - marginPx - continuedHeaderHeight)
+      );
       let pageEnd = Math.min(canvas.height, sourceY + availableHeight);
 
       if (pageEnd < canvas.height) {
@@ -197,10 +222,53 @@ async function renderPdfPages({ previewElement, format, orientation, theme, marg
         canvas.width,
         sliceHeight,
         0,
-        Math.round(topInset),
+        Math.round(topInset + continuedHeaderHeight),
         canvas.width,
         sliceHeight
       );
+
+      const borderColor = theme === "dark" ? "#303030" : "#e4e4e7";
+      if (continuingCard) {
+        const headerY = Math.round(topInset);
+        const headerHeight = continuedHeaderHeight;
+        const cardX = continuingCard.left;
+        const cardWidth = continuingCard.right - continuingCard.left;
+        const inset = Math.round(16 * canvasScaleX);
+        context.fillStyle = theme === "dark" ? "#161616" : "#f7f7f7";
+        context.fillRect(cardX, headerY, cardWidth, headerHeight);
+        context.strokeStyle = borderColor;
+        context.lineWidth = Math.max(1, canvasScaleX);
+        context.beginPath();
+        context.moveTo(cardX, headerY + headerHeight);
+        context.lineTo(cardX, headerY);
+        context.lineTo(cardX + cardWidth, headerY);
+        context.lineTo(cardX + cardWidth, headerY + headerHeight);
+        context.stroke();
+
+        context.textBaseline = "middle";
+        context.font = `600 ${Math.round(11 * canvasScaleX)}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+        context.fillStyle = theme === "dark" ? "#ededed" : "#18181b";
+        context.fillText(continuingCard.language, cardX + inset, headerY + headerHeight / 2, cardWidth / 2);
+        context.font = `400 ${Math.round(10 * canvasScaleX)}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+        context.fillStyle = theme === "dark" ? "#a1a1aa" : "#71717a";
+        context.textAlign = "right";
+        context.fillText("continued", cardX + cardWidth - inset, headerY + headerHeight / 2);
+        context.textAlign = "left";
+      }
+
+      const splitCard = codeCards.find((card) => card.top < pageEnd && card.bottom > pageEnd);
+      if (splitCard) {
+        const cardX = splitCard.left;
+        const cardWidth = splitCard.right - splitCard.left;
+        const bottomY = Math.round(topInset + continuedHeaderHeight + sliceHeight);
+        context.strokeStyle = borderColor;
+        context.lineWidth = Math.max(1, canvasScaleX);
+        context.beginPath();
+        context.moveTo(cardX, bottomY);
+        context.lineTo(cardX + cardWidth, bottomY);
+        context.stroke();
+      }
+
       pages.push(pageCanvas.toDataURL("image/png"));
       sourceY = pageEnd;
       pageIndex += 1;

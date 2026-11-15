@@ -1085,6 +1085,17 @@ body {
   display: none !important;
 }
 
+.pdf-preview-sheet .markdown-code-header {
+  align-items: center !important;
+  line-height: 1.5 !important;
+}
+
+.pdf-preview-sheet .markdown-code-header > span {
+  min-height: 1.5em;
+  line-height: 1.5 !important;
+  overflow: visible !important;
+}
+
 /* Explicit PDF sheet theme rules for live preview fidelity (scoped via data-pdf-theme) */
 .pdf-preview-sheet[data-pdf-theme="dark"],
 .pdf-preview-sheet[data-pdf-theme="dark"] .markdown-body {
